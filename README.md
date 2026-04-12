@@ -1,6 +1,6 @@
 # gradescoped
 
-Syncs upcoming Gradescope assignment due dates to a Google Calendar.
+Syncs upcoming assignment due dates from Gradescope and Canvas to a Google Calendar.
 
 ## Setup
 
@@ -32,15 +32,33 @@ Create `~/.config/gradescoped/config.toml`:
 email = "you@example.com"
 password = "your_password"
 
+[canvas]
+ics_url = "https://canvas.instructure.com/feeds/calendars/user_YOURTOKEN.ics"  # optional
+
 [calendar]
 name = "My Calendar"
-term = "Spring 2026"                        # optional: only sync courses from this term
-excluded_courses = ["PHYSICS 7B-LEC-002"]   # optional: skip by short name, full name, or course ID
+term = "Spring 2026"                          # optional: only sync courses from this term
+excluded_courses = ["PHYSICS 7B-LEC-002"]     # optional: skip by short name, full name, or course ID
+excluded_patterns = ["Final Project Week \\d+"]  # optional: skip Canvas events whose title matches (regex)
 
 [google]
 client_secret = "~/.config/gradescoped/client_secret.json"
-token = "~/.config/gradescoped/token.json"  # optional: defaults to this path
+token = "~/.config/gradescoped/token.json"    # optional: defaults to this path
 ```
+
+#### Finding your Canvas ICS URL
+
+In Canvas, go to **Calendar → Calendar Feed** (bottom-left gear icon) and copy the feed URL. It looks like `https://<institution>.instructure.com/feeds/calendars/user_<token>.ics`.
+
+#### Filtering noisy Canvas events
+
+Canvas publishes every assignment, including recurring weekly check-ins and milestone entries. Use `excluded_patterns` to suppress events by title using regex. For example:
+
+```toml
+excluded_patterns = ["Final Project Week \\d+", "Discussion"]
+```
+
+Patterns are case-insensitive and matched against the event title (without the course name suffix).
 
 ### 4. Authorize Google Calendar
 
@@ -71,12 +89,13 @@ journalctl --user -u gradescoped.service -f
 
 ## How it works
 
-1. Logs in to Gradescope via form POST (CSRF token + session cookie)
-2. Scrapes `/account` for courses, `/courses/{id}` for assignments
-3. Filters to upcoming assignments (due date in the future), applying `term` and `excluded_courses` from config
-4. Reads all existing events in the target calendar that contain a `gs-assignment-id:` tag in their description
-5. Diffs against scraped assignments — creates new events, updates changed ones, leaves unchanged events alone
-6. Each event is 1 hour long ending at the due time; the description contains the assignment URL and the dedup tag
+**Gradescope:** Logs in via form POST, scrapes courses and assignments, filters to upcoming due dates.
+
+**Canvas:** Fetches your personal ICS calendar feed, parses events, applies `excluded_patterns` to suppress noise.
+
+Both sources write to the same calendar using a dedup tag embedded in each event's description (`gs-assignment-id:` for Gradescope, `canvas-event-id:` for Canvas). Events are created or updated on each run; nothing is ever deleted.
+
+Each event is 1 hour long ending at the due time.
 
 ## Project layout
 
@@ -87,6 +106,7 @@ gradescoped/
   config.py          # config.toml loader
   models.py          # data types
   scraper.py         # Gradescope HTTP + HTML scraper
+  canvas.py          # Canvas ICS feed fetcher and parser
   sync.py            # diff logic (create/update planning)
   calendar_client.py # Google Calendar API client
 gradescoped.service  # systemd one-shot unit
