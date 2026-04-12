@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 import sys
-from pathlib import Path
 
 from . import config as cfg
 from .calendar_client import CalendarClient
+from .canvas import fetch_assignments as fetch_canvas_assignments
 from .scraper import GradescopeClient, GradescopeError
-from .sync import plan_sync
+from .sync import plan_canvas_sync, plan_sync
 
 log = logging.getLogger("gradescoped")
 
@@ -75,25 +75,49 @@ def main() -> None:
     existing = calendar_client.list_tagged_events(calendar_id)
     log.info("  %d existing tagged event(s)", len(existing))
 
-    result = plan_sync(
+    gs_result = plan_sync(
         calendar_name=conf.calendar.name,
         assignments=all_assignments,
         existing_events=existing,
     )
 
-    creates = sum(1 for a in result.actions if a.operation.value == "create")
-    updates = sum(1 for a in result.actions if a.operation.value == "update")
+    canvas_result = None
+    canvas_skipped = 0
+    if conf.canvas:
+        log.info("Fetching Canvas assignments…")
+        try:
+            canvas_assignments = fetch_canvas_assignments(conf.canvas.ics_url)
+            log.info("  %d total Canvas event(s)", len(canvas_assignments))
+            canvas_result, canvas_skipped = plan_canvas_sync(
+                calendar_name=conf.calendar.name,
+                assignments=canvas_assignments,
+                existing_events=existing,
+                excluded_patterns=conf.calendar.excluded_patterns,
+            )
+            if canvas_skipped:
+                log.info("  %d skipped (matched excluded_patterns)", canvas_skipped)
+        except Exception as e:
+            log.warning("Canvas sync failed: %s", e)
+
+    all_actions = gs_result.actions + (canvas_result.actions if canvas_result else [])
+
+    creates = sum(1 for a in all_actions if a.operation.value == "create")
+    updates = sum(1 for a in all_actions if a.operation.value == "update")
     log.info("Plan: %d to create, %d to update", creates, updates)
-    for action in result.actions:
+    for action in all_actions:
         verb = "+" if action.operation.value == "create" else "~"
         m = action.mutation
         log.info("  %s %s  (due %s)", verb, m.title, m.end.strftime("%b %d %H:%M"))
 
-    if not result.actions:
+    if not all_actions:
         log.info("Nothing to do.")
         return
 
-    created, updated = calendar_client.apply(result)
+    gs_result_with_canvas = gs_result.__class__(
+        calendar_name=conf.calendar.name,
+        actions=all_actions,
+    )
+    created, updated = calendar_client.apply(gs_result_with_canvas)
     log.info("Done: %d created, %d updated.", created, updated)
 
 
