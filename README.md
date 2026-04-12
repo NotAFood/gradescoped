@@ -97,6 +97,25 @@ Both sources write to the same calendar using a dedup tag embedded in each event
 
 Each event is 1 hour long ending at the due time.
 
+## Development
+
+To iterate locally without reinstalling the tool each time, run directly from the repo:
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+python -m gradescoped
+```
+
+**Important:** `uv pip install -e .` (editable install) does **not** update the `gradescoped` binary in `~/.local/bin` — that's managed separately by `uv tool install`. If you're testing changes that will run via systemd, you must reinstall after each change:
+
+```bash
+uv tool install . --force --no-cache
+```
+
+The `--no-cache` flag is required because `uv tool install` caches built wheels and will silently serve stale code otherwise. Plain `--force` alone is not sufficient.
+
 ## Project layout
 
 ```
