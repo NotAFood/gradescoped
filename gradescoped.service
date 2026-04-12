@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync Gradescope assignments to Google Calendar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/gradescoped
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
