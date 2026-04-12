@@ -54,6 +54,25 @@ class GradescopeAssignment:
 
 
 @dataclass(frozen=True)
+class CanvasAssignment:
+    uid: str
+    name: str
+    course_name: str
+    due_at: datetime
+    is_all_day: bool
+    url: str
+    description: str
+
+    @property
+    def calendar_tag(self) -> str:
+        return f"canvas-event-id:{self.uid}"
+
+    @property
+    def is_upcoming(self) -> bool:
+        return self.due_at > datetime.now(tz=timezone.utc)
+
+
+@dataclass(frozen=True)
 class CalendarEventSnapshot:
     identifier: str
     title: str

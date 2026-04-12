@@ -35,6 +35,12 @@ class CalendarConfig:
     name: str
     term: Optional[str] = None
     excluded_courses: list[str] = field(default_factory=list)
+    excluded_patterns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CanvasConfig:
+    ics_url: str
 
 
 @dataclass
@@ -48,6 +54,7 @@ class Config:
     gradescope: GradescopeConfig
     calendar: CalendarConfig
     google: GoogleConfig
+    canvas: Optional[CanvasConfig] = None
 
 
 def load(path: Optional[Path] = None) -> Config:
@@ -88,6 +95,7 @@ def load(path: Optional[Path] = None) -> Config:
             name=cal["name"],
             term=cal.get("term") or None,
             excluded_courses=cal.get("excluded_courses", []),
+            excluded_patterns=cal.get("excluded_patterns", []),
         ),
         google=GoogleConfig(
             client_secret=Path(goog["client_secret"]).expanduser(),
@@ -95,4 +103,7 @@ def load(path: Optional[Path] = None) -> Config:
                 goog.get("token", "~/.config/gradescoped/token.json")
             ).expanduser(),
         ),
+        canvas=CanvasConfig(ics_url=raw["canvas"]["ics_url"])
+        if raw.get("canvas", {}).get("ics_url")
+        else None,
     )
