@@ -7,10 +7,10 @@ Syncs upcoming Gradescope assignment due dates to a Google Calendar.
 ### 1. Install
 
 ```bash
-uv venv
-source .venv/bin/activate
-uv pip install -e .
+uv tool install .
 ```
+
+This installs the `gradescoped` binary to `~/.local/bin`, which is where the systemd service looks for it.
 
 ### 2. Create a Google Cloud OAuth client
 
