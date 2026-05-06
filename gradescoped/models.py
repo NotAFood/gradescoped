@@ -47,10 +47,17 @@ class GradescopeAssignment:
         return f"gs-assignment-id:{self.id}@{self.course_id}"
 
     @property
+    def late_calendar_tag(self) -> str:
+        return f"gs-assignment-id:{self.id}@{self.course_id}:late"
+
+    @property
     def is_upcoming(self) -> bool:
+        now = datetime.now(tz=timezone.utc)
+        if self.late_due_at is not None and self.late_due_at > now:
+            return True
         if self.due_at is None:
             return False
-        return self.due_at > datetime.now(tz=timezone.utc)
+        return self.due_at > now
 
 
 @dataclass(frozen=True)

@@ -226,7 +226,11 @@ class GradescopeClient:
 
             released_at = hidden_dates[0] if len(hidden_dates) > 0 else None
             due_at = hidden_dates[1] if len(hidden_dates) > 1 else None
-            late_due_at = hidden_dates[2] if len(hidden_dates) > 2 else None
+
+            late_time_nodes = row.xpath(
+                ".//time[contains(text(), 'Late Due Date')]/@datetime"
+            )
+            late_due_at = _parse_date(late_time_nodes[0]) if late_time_nodes else None
 
             assignments.append(
                 GradescopeAssignment(
@@ -260,3 +264,27 @@ class GradescopeClient:
                 return val
 
         return None
+
+
+if __name__ == "__main__":
+    import sys
+    from . import config as cfg
+
+    target = sys.argv[1].lower() if len(sys.argv) > 1 else None
+
+    conf = cfg.load()
+    with GradescopeClient() as gs:
+        gs.login(conf.gradescope.email, conf.gradescope.password)
+        courses = gs.get_courses()
+        courses = [
+            c for c in courses
+            if conf.calendar.term is None or c.term_year == conf.calendar.term
+        ]
+        for course in courses:
+            assignments = gs.get_assignments(course)
+            for a in assignments:
+                if target and target not in a.name.lower():
+                    continue
+                print(f"{course.short_name} | {a.name}")
+                print(f"  due_at:      {a.due_at}")
+                print(f"  late_due_at: {a.late_due_at}")
