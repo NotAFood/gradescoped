@@ -75,12 +75,7 @@ def main() -> None:
     existing = calendar_client.list_tagged_events(calendar_id)
     log.info("  %d existing tagged event(s)", len(existing))
 
-    gs_result = plan_sync(
-        calendar_name=conf.calendar.name,
-        assignments=all_assignments,
-        existing_events=existing,
-    )
-
+    canvas_assignments: list = []
     canvas_result = None
     canvas_skipped = 0
     if conf.canvas:
@@ -88,11 +83,33 @@ def main() -> None:
         try:
             canvas_assignments = fetch_canvas_assignments(conf.canvas.ics_url)
             log.info("  %d total Canvas event(s)", len(canvas_assignments))
+        except Exception as e:
+            log.warning("Canvas sync failed: %s", e)
+
+    # Auto-populate config with any newly discovered course names
+    all_course_names = list(
+        {a.course_name for a in all_assignments}
+        | {a.course_name for a in canvas_assignments}
+    )
+    cfg.update_course_abbreviations(all_course_names)
+
+    abbrevs = conf.calendar.course_abbreviations
+
+    gs_result = plan_sync(
+        calendar_name=conf.calendar.name,
+        assignments=all_assignments,
+        existing_events=existing,
+        course_abbreviations=abbrevs,
+    )
+
+    if conf.canvas and canvas_assignments:
+        try:
             canvas_result, canvas_skipped = plan_canvas_sync(
                 calendar_name=conf.calendar.name,
                 assignments=canvas_assignments,
                 existing_events=existing,
                 excluded_patterns=conf.calendar.excluded_patterns,
+                course_abbreviations=abbrevs,
             )
             if canvas_skipped:
                 log.info("  %d skipped (matched excluded_patterns)", canvas_skipped)

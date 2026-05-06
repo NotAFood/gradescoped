@@ -18,15 +18,17 @@ def plan_sync(
     calendar_name: str,
     assignments: list[GradescopeAssignment],
     existing_events: list[CalendarEventSnapshot],
+    course_abbreviations: dict[str, str] | None = None,
 ) -> SyncResult:
     existing_by_tag = {e.tag: e for e in existing_events}
+    abbrevs = course_abbreviations or {}
     actions: list[SyncAction] = []
 
     for assignment in assignments:
         if assignment.due_at is None:
             continue
 
-        for mutation in _planned_mutations(assignment, existing_by_tag):
+        for mutation in _planned_mutations(assignment, existing_by_tag, abbrevs):
             existing = existing_by_tag.get(mutation.tag)
             if existing is not None:
                 if (
@@ -51,8 +53,10 @@ def plan_canvas_sync(
     assignments: list[CanvasAssignment],
     existing_events: list[CalendarEventSnapshot],
     excluded_patterns: list[str],
+    course_abbreviations: dict[str, str] | None = None,
 ) -> tuple[SyncResult, int]:
     existing_by_tag = {e.tag: e for e in existing_events}
+    abbrevs = course_abbreviations or {}
     actions: list[SyncAction] = []
     skipped = 0
 
@@ -67,7 +71,7 @@ def plan_canvas_sync(
             continue
 
         mutation = _planned_canvas_mutation(
-            assignment, existing_by_tag.get(assignment.calendar_tag)
+            assignment, existing_by_tag.get(assignment.calendar_tag), abbrevs
         )
         existing = existing_by_tag.get(assignment.calendar_tag)
 
@@ -89,15 +93,20 @@ def plan_canvas_sync(
     return SyncResult(calendar_name=calendar_name, actions=actions), skipped
 
 
+def _short_course(course_name: str, abbreviations: dict[str, str]) -> str:
+    return abbreviations.get(course_name) or course_name
+
+
 def _planned_mutations(
     assignment: GradescopeAssignment,
     existing_by_tag: dict[str, CalendarEventSnapshot],
+    abbreviations: dict[str, str],
 ) -> list[CalendarMutation]:
     mutations = []
 
     assert assignment.due_at is not None
     due_at = assignment.due_at
-    title = f"[{assignment.course_name}] {assignment.name}"
+    title = f"[{_short_course(assignment.course_name, abbreviations)}] {assignment.name}"
     existing = existing_by_tag.get(assignment.calendar_tag)
     mutations.append(
         CalendarMutation(
@@ -129,9 +138,10 @@ def _planned_mutations(
 def _planned_canvas_mutation(
     assignment: CanvasAssignment,
     existing: CalendarEventSnapshot | None,
+    abbreviations: dict[str, str],
 ) -> CalendarMutation:
     due_at = assignment.due_at
-    title = f"[{assignment.course_name}] {assignment.name}"
+    title = f"[{_short_course(assignment.course_name, abbreviations)}] {assignment.name}"
     body = assignment.description.strip()
     description = (
         f"{assignment.url}\n{body}\n{assignment.calendar_tag}"

@@ -21,6 +21,11 @@ name = "Gradescope"
 
 # Optional: list course IDs or short names to skip
 # excluded_courses = ["12345", "CS 101"]
+
+# Short display names for courses in calendar event titles.
+# Run the daemon once to auto-populate discovered courses, then fill in values.
+# [calendar.course_abbreviations]
+# "Discrete Mathematics and Probability Theory (Spring 2026)" = "CS 70"
 """
 
 
@@ -36,6 +41,7 @@ class CalendarConfig:
     term: Optional[str] = None
     excluded_courses: list[str] = field(default_factory=list)
     excluded_patterns: list[str] = field(default_factory=list)
+    course_abbreviations: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -55,6 +61,59 @@ class Config:
     calendar: CalendarConfig
     google: GoogleConfig
     canvas: Optional[CanvasConfig] = None
+
+
+_SECTION_HEADER = "[calendar.course_abbreviations]"
+
+
+def update_course_abbreviations(
+    new_course_names: list[str], path: Optional[Path] = None
+) -> None:
+    """Append any newly discovered course names (with empty values) to the config."""
+    config_path = path or CONFIG_PATH
+
+    with open(config_path, "rb") as f:
+        raw = tomllib.load(f)
+
+    existing = raw.get("calendar", {}).get("course_abbreviations", {})
+    missing = [n for n in new_course_names if n and n not in existing]
+    if not missing:
+        return
+
+    def _toml_quote(s: str) -> str:
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    new_entries = [f"{_toml_quote(n)} = \"\"\n" for n in missing]
+
+    text = config_path.read_text()
+    lines = text.splitlines(keepends=True)
+
+    section_idx = next(
+        (i for i, l in enumerate(lines) if l.strip() == _SECTION_HEADER), None
+    )
+
+    if section_idx is None:
+        # Append new section at end of file
+        if not text.endswith("\n"):
+            lines.append("\n")
+        lines.append(f"\n{_SECTION_HEADER}\n")
+        lines.extend(new_entries)
+    else:
+        # Find end of section (next header or EOF) and insert before it
+        insert_at = len(lines)
+        for i in range(section_idx + 1, len(lines)):
+            stripped = lines[i].strip()
+            if stripped.startswith("[") and not stripped.startswith("#"):
+                insert_at = i
+                break
+        lines[insert_at:insert_at] = new_entries
+
+    config_path.write_text("".join(lines))
+    log.info(
+        "Added %d new course(s) to %s in config — fill in short names to use them",
+        len(missing),
+        _SECTION_HEADER,
+    )
 
 
 def load(path: Optional[Path] = None) -> Config:
@@ -96,6 +155,7 @@ def load(path: Optional[Path] = None) -> Config:
             term=cal.get("term") or None,
             excluded_courses=cal.get("excluded_courses", []),
             excluded_patterns=cal.get("excluded_patterns", []),
+            course_abbreviations=cal.get("course_abbreviations", {}),
         ),
         google=GoogleConfig(
             client_secret=Path(goog["client_secret"]).expanduser(),
