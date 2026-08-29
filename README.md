@@ -1,6 +1,6 @@
 # gradescoped
 
-Syncs upcoming assignment due dates from Gradescope and Canvas to a Google Calendar.
+Syncs upcoming assignment due dates from Gradescope and Canvas, and upcoming events from Partiful, to a Google Calendar.
 
 ## Setup
 
@@ -35,6 +35,10 @@ password = "your_password"
 [canvas]
 ics_url = "https://canvas.instructure.com/feeds/calendars/user_YOURTOKEN.ics"  # optional
 
+[partiful]
+ics_url = "webcal://calendars.partiful.com/getCalendar?id=YOURID"  # optional
+excluded_patterns = ["Weekly Standup"]  # optional: skip Partiful events whose title matches (regex)
+
 [calendar]
 name = "My Calendar"
 term = "Spring 2026"                          # optional: only sync courses from this term
@@ -58,7 +62,11 @@ Canvas publishes every assignment, including recurring weekly check-ins and mile
 excluded_patterns = ["Final Project Week \\d+", "Discussion"]
 ```
 
-Patterns are case-insensitive and matched against the event title (without the course name suffix).
+Patterns are case-insensitive and matched against the event title (without the course name suffix). The same mechanism works for `[partiful] excluded_patterns`.
+
+#### Finding your Partiful ICS URL
+
+In the Partiful app, go to **Settings → Sync to Calendar** and copy the `webcal://` feed URL. It's automatically converted to `https://` when fetched.
 
 ### 4. Authorize Google Calendar
 
@@ -93,9 +101,11 @@ journalctl --user -u gradescoped.service -f
 
 **Canvas:** Fetches your personal ICS calendar feed, parses events, applies `excluded_patterns` to suppress noise.
 
-Both sources write to the same calendar using a dedup tag embedded in each event's description (`gs-assignment-id:` for Gradescope, `canvas-event-id:` for Canvas). Events are created or updated on each run; nothing is ever deleted.
+**Partiful:** Fetches your personal ICS calendar feed, parses events, applies `excluded_patterns` to suppress noise.
 
-Each event is 1 hour long ending at the due time.
+All sources write to the same calendar using a dedup tag embedded in each event's description (`gs-assignment-id:` for Gradescope, `canvas-event-id:` for Canvas, `partiful-event-id:` for Partiful). Events are created or updated on each run; nothing is ever deleted.
+
+Gradescope and Canvas events are 1 hour long ending at the due time. Partiful events use the actual event start/end time from the feed (falling back to a 1-hour block if the feed omits a duration).
 
 ## Development
 
@@ -126,6 +136,7 @@ gradescoped/
   models.py          # data types
   scraper.py         # Gradescope HTTP + HTML scraper
   canvas.py          # Canvas ICS feed fetcher and parser
+  partiful.py        # Partiful ICS feed fetcher and parser
   sync.py            # diff logic (create/update planning)
   calendar_client.py # Google Calendar API client
 gradescoped.service  # systemd one-shot unit

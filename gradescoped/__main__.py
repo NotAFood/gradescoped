@@ -6,8 +6,9 @@ import sys
 from . import config as cfg
 from .calendar_client import CalendarClient
 from .canvas import fetch_assignments as fetch_canvas_assignments
+from .partiful import fetch_events as fetch_partiful_events
 from .scraper import GradescopeClient, GradescopeError
-from .sync import plan_canvas_sync, plan_sync
+from .sync import plan_canvas_sync, plan_partiful_sync, plan_sync
 
 log = logging.getLogger("gradescoped")
 
@@ -86,6 +87,17 @@ def main() -> None:
         except Exception as e:
             log.warning("Canvas sync failed: %s", e)
 
+    partiful_events: list = []
+    partiful_result = None
+    partiful_skipped = 0
+    if conf.partiful:
+        log.info("Fetching Partiful events…")
+        try:
+            partiful_events = fetch_partiful_events(conf.partiful.ics_url)
+            log.info("  %d total Partiful event(s)", len(partiful_events))
+        except Exception as e:
+            log.warning("Partiful sync failed: %s", e)
+
     # Auto-populate config with any newly discovered course names
     all_course_names = list(
         {a.course_name for a in all_assignments}
@@ -116,7 +128,24 @@ def main() -> None:
         except Exception as e:
             log.warning("Canvas sync failed: %s", e)
 
-    all_actions = gs_result.actions + (canvas_result.actions if canvas_result else [])
+    if conf.partiful and partiful_events:
+        try:
+            partiful_result, partiful_skipped = plan_partiful_sync(
+                calendar_name=conf.calendar.name,
+                events=partiful_events,
+                existing_events=existing,
+                excluded_patterns=conf.partiful.excluded_patterns,
+            )
+            if partiful_skipped:
+                log.info("  %d skipped (matched excluded_patterns)", partiful_skipped)
+        except Exception as e:
+            log.warning("Partiful sync failed: %s", e)
+
+    all_actions = (
+        gs_result.actions
+        + (canvas_result.actions if canvas_result else [])
+        + (partiful_result.actions if partiful_result else [])
+    )
 
     creates = sum(1 for a in all_actions if a.operation.value == "create")
     updates = sum(1 for a in all_actions if a.operation.value == "update")

@@ -80,6 +80,25 @@ class CanvasAssignment:
 
 
 @dataclass(frozen=True)
+class PartifulEvent:
+    uid: str
+    name: str
+    start: datetime
+    end: datetime
+    location: str
+    url: str
+    description: str
+
+    @property
+    def calendar_tag(self) -> str:
+        return f"partiful-event-id:{self.uid}"
+
+    @property
+    def is_upcoming(self) -> bool:
+        return self.start > datetime.now(tz=timezone.utc)
+
+
+@dataclass(frozen=True)
 class CalendarEventSnapshot:
     identifier: str
     title: str

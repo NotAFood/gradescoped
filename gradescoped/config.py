@@ -50,6 +50,12 @@ class CanvasConfig:
 
 
 @dataclass
+class PartifulConfig:
+    ics_url: str
+    excluded_patterns: list[str] = field(default_factory=list)
+
+
+@dataclass
 class GoogleConfig:
     client_secret: Path
     token: Path
@@ -61,6 +67,7 @@ class Config:
     calendar: CalendarConfig
     google: GoogleConfig
     canvas: Optional[CanvasConfig] = None
+    partiful: Optional[PartifulConfig] = None
 
 
 _SECTION_HEADER = "[calendar.course_abbreviations]"
@@ -165,5 +172,11 @@ def load(path: Optional[Path] = None) -> Config:
         ),
         canvas=CanvasConfig(ics_url=raw["canvas"]["ics_url"])
         if raw.get("canvas", {}).get("ics_url")
+        else None,
+        partiful=PartifulConfig(
+            ics_url=raw["partiful"]["ics_url"],
+            excluded_patterns=raw.get("partiful", {}).get("excluded_patterns", []),
+        )
+        if raw.get("partiful", {}).get("ics_url")
         else None,
     )

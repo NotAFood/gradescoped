@@ -20,7 +20,9 @@ from .models import (
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-TAG_PATTERN = re.compile(r"(?:gs-assignment-id|canvas-event-id):[^\s]+")
+TAG_PATTERN = re.compile(
+    r"(?:gs-assignment-id|canvas-event-id|partiful-event-id):[^\s]+"
+)
 
 
 def _get_credentials(client_secret_path: Path, token_path: Path) -> Credentials:

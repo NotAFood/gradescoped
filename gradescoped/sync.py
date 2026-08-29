@@ -7,6 +7,7 @@ from .models import (
     CalendarMutation,
     CanvasAssignment,
     GradescopeAssignment,
+    PartifulEvent,
     SyncAction,
     SyncOperation,
     SyncResult,
@@ -91,6 +92,69 @@ def plan_canvas_sync(
             )
 
     return SyncResult(calendar_name=calendar_name, actions=actions), skipped
+
+
+def plan_partiful_sync(
+    calendar_name: str,
+    events: list[PartifulEvent],
+    existing_events: list[CalendarEventSnapshot],
+    excluded_patterns: list[str],
+) -> tuple[SyncResult, int]:
+    existing_by_tag = {e.tag: e for e in existing_events}
+    actions: list[SyncAction] = []
+    skipped = 0
+
+    compiled = [re.compile(p, re.IGNORECASE) for p in excluded_patterns]
+
+    for event in events:
+        if not event.is_upcoming:
+            continue
+
+        if any(p.search(event.name) for p in compiled):
+            skipped += 1
+            continue
+
+        mutation = _planned_partiful_mutation(
+            event, existing_by_tag.get(event.calendar_tag)
+        )
+        existing = existing_by_tag.get(event.calendar_tag)
+
+        if existing is not None:
+            if (
+                existing.title != mutation.title
+                or existing.start != mutation.start
+                or existing.end != mutation.end
+                or existing.description != mutation.description
+            ):
+                actions.append(
+                    SyncAction(operation=SyncOperation.update, mutation=mutation)
+                )
+        else:
+            actions.append(
+                SyncAction(operation=SyncOperation.create, mutation=mutation)
+            )
+
+    return SyncResult(calendar_name=calendar_name, actions=actions), skipped
+
+
+def _planned_partiful_mutation(
+    event: PartifulEvent, existing: CalendarEventSnapshot | None
+) -> CalendarMutation:
+    body = event.description.strip()
+    description = (
+        f"{event.url}\n{body}\n{event.calendar_tag}"
+        if body
+        else f"{event.url}\n{event.calendar_tag}"
+    )
+
+    return CalendarMutation(
+        tag=event.calendar_tag,
+        title=event.name,
+        start=event.start,
+        end=event.end,
+        description=description,
+        existing_event_id=existing.identifier if existing else None,
+    )
 
 
 def _short_course(course_name: str, abbreviations: dict[str, str]) -> str:
