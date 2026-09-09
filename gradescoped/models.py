@@ -80,6 +80,24 @@ class CanvasAssignment:
 
 
 @dataclass(frozen=True)
+class PensieveAssignment:
+    uid: str
+    name: str
+    course_name: str
+    due_at: datetime
+    url: str
+    description: str
+
+    @property
+    def calendar_tag(self) -> str:
+        return f"pensieve-event-id:{self.uid}"
+
+    @property
+    def is_upcoming(self) -> bool:
+        return self.due_at > datetime.now(tz=timezone.utc)
+
+
+@dataclass(frozen=True)
 class PartifulEvent:
     uid: str
     name: str
@@ -92,6 +110,27 @@ class PartifulEvent:
     @property
     def calendar_tag(self) -> str:
         return f"partiful-event-id:{self.uid}"
+
+    @property
+    def is_upcoming(self) -> bool:
+        return self.start > datetime.now(tz=timezone.utc)
+
+
+@dataclass(frozen=True)
+class GCalEvent:
+    source_slug: str
+    uid: str
+    recurrence_id: Optional[str]
+    name: str
+    start: datetime
+    end: datetime
+    location: str
+    description: str
+
+    @property
+    def calendar_tag(self) -> str:
+        suffix = f":{self.recurrence_id}" if self.recurrence_id else ""
+        return f"gcal-event-id:{self.source_slug}:{self.uid}{suffix}"
 
     @property
     def is_upcoming(self) -> bool:

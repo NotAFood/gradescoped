@@ -3,10 +3,13 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 
 from .models import PartifulEvent
+
+LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 # ICS line folding: continuation lines start with a space or tab
 _FOLD_RE = re.compile(r"\r?\n[ \t]")
@@ -21,7 +24,9 @@ def _unfold(text: str) -> str:
 
 def _parse_dt(value: str) -> datetime:
     if len(value) == 8 and value.isdigit():
-        return datetime.strptime(value, "%Y%m%d").replace(tzinfo=timezone.utc)
+        d = datetime.strptime(value, "%Y%m%d")
+        local_end_of_day = d.replace(hour=23, minute=59, second=59, tzinfo=LOCAL_TZ)
+        return local_end_of_day.astimezone(timezone.utc)
 
     value = value.rstrip("Z")
     dt = datetime.strptime(value[:15], "%Y%m%dT%H%M%S")

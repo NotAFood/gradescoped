@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -16,6 +17,10 @@ EXAMPLE_CONFIG = """\
 email = "you@example.com"
 password = "your_password"
 
+[pensieve]
+ics_url = "https://api.pensieve.co/api/calendar/YOURID.ics"
+name = "CS 189"
+
 [calendar]
 name = "Gradescope"
 
@@ -26,6 +31,14 @@ name = "Gradescope"
 # Run the daemon once to auto-populate discovered courses, then fill in values.
 # [calendar.course_abbreviations]
 # "Discrete Mathematics and Probability Theory (Spring 2026)" = "CS 70"
+
+# Optional: sync one or more external Google Calendar (or other) ICS feeds into
+# any Google Calendar, independent of [calendar] name above.
+# [[external_calendar]]
+# name = "CS 189 Instructors"
+# ics_url = "https://calendar.google.com/calendar/ical/cs189-instructors%40berkeley.edu/public/basic.ics"
+# target_calendar = "context"
+# excluded_patterns = ["Office Hours"]
 """
 
 
@@ -50,6 +63,13 @@ class CanvasConfig:
 
 
 @dataclass
+class PensieveConfig:
+    ics_url: str
+    name: str
+    excluded_patterns: list[str] = field(default_factory=list)
+
+
+@dataclass
 class PartifulConfig:
     ics_url: str
     excluded_patterns: list[str] = field(default_factory=list)
@@ -62,12 +82,26 @@ class GoogleConfig:
 
 
 @dataclass
+class ExternalCalendarConfig:
+    name: str
+    ics_url: str
+    target_calendar: str
+    excluded_patterns: list[str] = field(default_factory=list)
+
+    @property
+    def slug(self) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", self.name.lower()).strip("-")
+
+
+@dataclass
 class Config:
     gradescope: GradescopeConfig
     calendar: CalendarConfig
     google: GoogleConfig
     canvas: Optional[CanvasConfig] = None
+    pensieve: Optional[PensieveConfig] = None
     partiful: Optional[PartifulConfig] = None
+    external_calendars: list[ExternalCalendarConfig] = field(default_factory=list)
 
 
 _SECTION_HEADER = "[calendar.course_abbreviations]"
@@ -152,6 +186,11 @@ def load(path: Optional[Path] = None) -> Config:
         log.error("Missing required config key: [google] client_secret")
         sys.exit(1)
 
+    pensieve = raw.get("pensieve", {})
+    if pensieve.get("ics_url") and not pensieve.get("name"):
+        log.error("Missing required config key: [pensieve] name")
+        sys.exit(1)
+
     return Config(
         gradescope=GradescopeConfig(
             email=gs["email"],
@@ -173,10 +212,26 @@ def load(path: Optional[Path] = None) -> Config:
         canvas=CanvasConfig(ics_url=raw["canvas"]["ics_url"])
         if raw.get("canvas", {}).get("ics_url")
         else None,
+        pensieve=PensieveConfig(
+            ics_url=pensieve["ics_url"],
+            name=pensieve["name"],
+            excluded_patterns=pensieve.get("excluded_patterns", []),
+        )
+        if pensieve.get("ics_url")
+        else None,
         partiful=PartifulConfig(
             ics_url=raw["partiful"]["ics_url"],
             excluded_patterns=raw.get("partiful", {}).get("excluded_patterns", []),
         )
         if raw.get("partiful", {}).get("ics_url")
         else None,
+        external_calendars=[
+            ExternalCalendarConfig(
+                name=entry["name"],
+                ics_url=entry["ics_url"],
+                target_calendar=entry["target_calendar"],
+                excluded_patterns=entry.get("excluded_patterns", []),
+            )
+            for entry in raw.get("external_calendar", [])
+        ],
     )

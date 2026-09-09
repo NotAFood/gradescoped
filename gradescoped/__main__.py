@@ -6,9 +6,17 @@ import sys
 from . import config as cfg
 from .calendar_client import CalendarClient
 from .canvas import fetch_assignments as fetch_canvas_assignments
+from .gcal_ics import fetch_events as fetch_gcal_events
 from .partiful import fetch_events as fetch_partiful_events
+from .pensieve import fetch_assignments as fetch_pensieve_assignments
 from .scraper import GradescopeClient, GradescopeError
-from .sync import plan_canvas_sync, plan_partiful_sync, plan_sync
+from .sync import (
+    plan_canvas_sync,
+    plan_external_calendar_sync,
+    plan_partiful_sync,
+    plan_pensieve_sync,
+    plan_sync,
+)
 
 log = logging.getLogger("gradescoped")
 
@@ -87,6 +95,19 @@ def main() -> None:
         except Exception as e:
             log.warning("Canvas sync failed: %s", e)
 
+    pensieve_assignments: list = []
+    pensieve_result = None
+    pensieve_skipped = 0
+    if conf.pensieve:
+        log.info("Fetching Pensieve assignments…")
+        try:
+            pensieve_assignments = fetch_pensieve_assignments(
+                conf.pensieve.ics_url, conf.pensieve.name
+            )
+            log.info("  %d total Pensieve event(s)", len(pensieve_assignments))
+        except Exception as e:
+            log.warning("Pensieve sync failed: %s", e)
+
     partiful_events: list = []
     partiful_result = None
     partiful_skipped = 0
@@ -128,6 +149,19 @@ def main() -> None:
         except Exception as e:
             log.warning("Canvas sync failed: %s", e)
 
+    if conf.pensieve and pensieve_assignments:
+        try:
+            pensieve_result, pensieve_skipped = plan_pensieve_sync(
+                calendar_name=conf.calendar.name,
+                assignments=pensieve_assignments,
+                existing_events=existing,
+                excluded_patterns=conf.pensieve.excluded_patterns,
+            )
+            if pensieve_skipped:
+                log.info("  %d skipped (matched excluded_patterns)", pensieve_skipped)
+        except Exception as e:
+            log.warning("Pensieve sync failed: %s", e)
+
     if conf.partiful and partiful_events:
         try:
             partiful_result, partiful_skipped = plan_partiful_sync(
@@ -141,11 +175,40 @@ def main() -> None:
         except Exception as e:
             log.warning("Partiful sync failed: %s", e)
 
-    all_actions = (
+    primary_actions = (
         gs_result.actions
         + (canvas_result.actions if canvas_result else [])
+        + (pensieve_result.actions if pensieve_result else [])
         + (partiful_result.actions if partiful_result else [])
     )
+
+    # External calendars can target calendars other than [calendar].name, so
+    # each is planned against its own target calendar's existing events.
+    external_results = []
+    for ext in conf.external_calendars:
+        log.info("Fetching external calendar '%s'…", ext.name)
+        try:
+            events = fetch_gcal_events(ext.ics_url, source_slug=ext.slug)
+            log.info("  %d upcoming event(s)", len(events))
+            ext_calendar_id = calendar_client.get_or_create_calendar(
+                ext.target_calendar
+            )
+            ext_existing = calendar_client.list_tagged_events(ext_calendar_id)
+            ext_result, ext_skipped = plan_external_calendar_sync(
+                calendar_name=ext.target_calendar,
+                events=events,
+                existing_events=ext_existing,
+                excluded_patterns=ext.excluded_patterns,
+            )
+            if ext_skipped:
+                log.info("  %d skipped (matched excluded_patterns)", ext_skipped)
+            external_results.append((ext.target_calendar, ext_result))
+        except Exception as e:
+            log.warning("External calendar '%s' sync failed: %s", ext.name, e)
+
+    all_actions = primary_actions + [
+        a for _, r in external_results for a in r.actions
+    ]
 
     creates = sum(1 for a in all_actions if a.operation.value == "create")
     updates = sum(1 for a in all_actions if a.operation.value == "update")
@@ -159,12 +222,25 @@ def main() -> None:
         log.info("Nothing to do.")
         return
 
-    gs_result_with_canvas = gs_result.__class__(
-        calendar_name=conf.calendar.name,
-        actions=all_actions,
-    )
-    created, updated = calendar_client.apply(gs_result_with_canvas)
-    log.info("Done: %d created, %d updated.", created, updated)
+    total_created = total_updated = 0
+
+    if primary_actions:
+        primary_result = gs_result.__class__(
+            calendar_name=conf.calendar.name,
+            actions=primary_actions,
+        )
+        created, updated = calendar_client.apply(primary_result)
+        total_created += created
+        total_updated += updated
+
+    for _, ext_result in external_results:
+        if not ext_result.actions:
+            continue
+        created, updated = calendar_client.apply(ext_result)
+        total_created += created
+        total_updated += updated
+
+    log.info("Done: %d created, %d updated.", total_created, total_updated)
 
 
 if __name__ == "__main__":

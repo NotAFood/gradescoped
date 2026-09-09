@@ -21,7 +21,7 @@ from .models import (
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 TAG_PATTERN = re.compile(
-    r"(?:gs-assignment-id|canvas-event-id|partiful-event-id):[^\s]+"
+    r"(?:gs-assignment-id|canvas-event-id|pensieve-event-id|partiful-event-id|gcal-event-id):[^\s]+"
 )
 
 

@@ -6,8 +6,10 @@ from datetime import timedelta
 from .models import (
     CalendarMutation,
     CanvasAssignment,
+    GCalEvent,
     GradescopeAssignment,
     PartifulEvent,
+    PensieveAssignment,
     SyncAction,
     SyncOperation,
     SyncResult,
@@ -94,6 +96,49 @@ def plan_canvas_sync(
     return SyncResult(calendar_name=calendar_name, actions=actions), skipped
 
 
+def plan_pensieve_sync(
+    calendar_name: str,
+    assignments: list[PensieveAssignment],
+    existing_events: list[CalendarEventSnapshot],
+    excluded_patterns: list[str],
+) -> tuple[SyncResult, int]:
+    existing_by_tag = {e.tag: e for e in existing_events}
+    actions: list[SyncAction] = []
+    skipped = 0
+
+    compiled = [re.compile(p, re.IGNORECASE) for p in excluded_patterns]
+
+    for assignment in assignments:
+        if not assignment.is_upcoming:
+            continue
+
+        if any(p.search(assignment.name) for p in compiled):
+            skipped += 1
+            continue
+
+        mutation = _planned_pensieve_mutation(
+            assignment, existing_by_tag.get(assignment.calendar_tag)
+        )
+        existing = existing_by_tag.get(assignment.calendar_tag)
+
+        if existing is not None:
+            if (
+                existing.title != mutation.title
+                or existing.start != mutation.start
+                or existing.end != mutation.end
+                or existing.description != mutation.description
+            ):
+                actions.append(
+                    SyncAction(operation=SyncOperation.update, mutation=mutation)
+                )
+        else:
+            actions.append(
+                SyncAction(operation=SyncOperation.create, mutation=mutation)
+            )
+
+    return SyncResult(calendar_name=calendar_name, actions=actions), skipped
+
+
 def plan_partiful_sync(
     calendar_name: str,
     events: list[PartifulEvent],
@@ -135,6 +180,66 @@ def plan_partiful_sync(
             )
 
     return SyncResult(calendar_name=calendar_name, actions=actions), skipped
+
+
+def plan_external_calendar_sync(
+    calendar_name: str,
+    events: list[GCalEvent],
+    existing_events: list[CalendarEventSnapshot],
+    excluded_patterns: list[str],
+) -> tuple[SyncResult, int]:
+    existing_by_tag = {e.tag: e for e in existing_events}
+    actions: list[SyncAction] = []
+    skipped = 0
+
+    compiled = [re.compile(p, re.IGNORECASE) for p in excluded_patterns]
+
+    for event in events:
+        if not event.is_upcoming:
+            continue
+
+        if any(p.search(event.name) for p in compiled):
+            skipped += 1
+            continue
+
+        mutation = _planned_external_calendar_mutation(
+            event, existing_by_tag.get(event.calendar_tag)
+        )
+        existing = existing_by_tag.get(event.calendar_tag)
+
+        if existing is not None:
+            if (
+                existing.title != mutation.title
+                or existing.start != mutation.start
+                or existing.end != mutation.end
+                or existing.description != mutation.description
+            ):
+                actions.append(
+                    SyncAction(operation=SyncOperation.update, mutation=mutation)
+                )
+        else:
+            actions.append(
+                SyncAction(operation=SyncOperation.create, mutation=mutation)
+            )
+
+    return SyncResult(calendar_name=calendar_name, actions=actions), skipped
+
+
+def _planned_external_calendar_mutation(
+    event: GCalEvent, existing: CalendarEventSnapshot | None
+) -> CalendarMutation:
+    body = event.description.strip()
+    location_line = f"\n{event.location}" if event.location else ""
+    description = f"{body}{location_line}\n{event.calendar_tag}".strip()
+
+    return CalendarMutation(
+        tag=event.calendar_tag,
+        title=event.name,
+        start=event.start,
+        end=event.end,
+        description=description,
+        existing_event_id=existing.identifier if existing else None,
+    )
 
 
 def _planned_partiful_mutation(
@@ -197,6 +302,28 @@ def _planned_mutations(
         )
 
     return mutations
+
+
+def _planned_pensieve_mutation(
+    assignment: PensieveAssignment, existing: CalendarEventSnapshot | None
+) -> CalendarMutation:
+    due_at = assignment.due_at
+    title = f"[{assignment.course_name}] {assignment.name}"
+    body = assignment.description.strip()
+    description = (
+        f"{assignment.url}\n{body}\n{assignment.calendar_tag}"
+        if body
+        else f"{assignment.url}\n{assignment.calendar_tag}"
+    )
+
+    return CalendarMutation(
+        tag=assignment.calendar_tag,
+        title=title,
+        start=due_at - timedelta(hours=1),
+        end=due_at,
+        description=description,
+        existing_event_id=existing.identifier if existing else None,
+    )
 
 
 def _planned_canvas_mutation(
