@@ -225,7 +225,20 @@ class GradescopeClient:
                         hidden_dates.append(dt)
 
             released_at = hidden_dates[0] if len(hidden_dates) > 0 else None
-            due_at = hidden_dates[1] if len(hidden_dates) > 1 else None
+
+            # The hidden-column due-date <td> is unreliable while a late window is
+            # currently open: Gradescope swaps its value to the late deadline instead
+            # of the original one. The visible <time class="...dueDate"> elements
+            # don't have this problem, so prefer those.
+            due_time_nodes = row.xpath(
+                ".//time[contains(@class, 'submissionTimeChart--dueDate')"
+                " and not(contains(text(), 'Late Due Date'))]/@datetime"
+            )
+            due_at = (
+                _parse_date(due_time_nodes[0])
+                if due_time_nodes
+                else (hidden_dates[1] if len(hidden_dates) > 1 else None)
+            )
 
             late_time_nodes = row.xpath(
                 ".//time[contains(text(), 'Late Due Date')]/@datetime"
